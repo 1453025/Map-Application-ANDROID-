@@ -56,6 +56,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private static final int REQUES_CODE_LOCATION = 10;
     String TAG = "MapsActivity";
     Marker ortherClientMarker;
+
+    Presenter presenter;
     LatLng oldMyLocation;
     HashMap oldAnotherClientLocation = new HashMap();
     HashMap shMarkerClientLocation = new HashMap();
@@ -197,6 +199,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mSocket.on("resultRegister", onConnected);
         mSocket.on("latLngFromServer", latLngFromServer);
         mSocket.connect();
+
+        presenter = new Presenter();
     }
 
 
