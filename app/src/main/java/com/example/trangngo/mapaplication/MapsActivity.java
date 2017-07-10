@@ -7,6 +7,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.graphics.Point;
 import android.os.Bundle;
 import android.os.Handler;
@@ -34,6 +35,7 @@ import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.PolylineOptions;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -41,6 +43,12 @@ import org.json.JSONObject;
 import java.net.URISyntaxException;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, View.OnClickListener {
@@ -48,21 +56,29 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private static final int REQUES_CODE_LOCATION = 10;
     String TAG = "MapsActivity";
     Marker ortherClientMarker;
-    ListenLatLngChange listenLatLngChange;
+    LatLng oldMyLocation;
+    HashMap oldAnotherClientLocation = new HashMap();
+    HashMap shMarkerClientLocation = new HashMap();
+    List<String> listIdClient = new ArrayList<>();
     private GoogleMap mMap;
     private FloatingActionButton fab;
     private Socket mSocket;
     BroadcastReceiver broadcastReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            Log.d("BroadCastReceiver", "OnReceive");
             double latitude = Double.valueOf(intent.getStringExtra("latutide"));
             double longitude = Double.valueOf(intent.getStringExtra("longitude"));
             LatLng mineLatLng = new LatLng(latitude, longitude);
-            Log.d("GPS_TEST", mineLatLng.toString());
 
-            listenLatLngChange.onLatLngChange(mineLatLng);
-            String lat[] = {String.valueOf(latitude), String.valueOf(longitude)};
+            Log.d("GPS_TEST", mineLatLng.toString());
+            if (oldMyLocation != null) {
+                mMap.addPolyline(new PolylineOptions()
+                        .add(oldMyLocation, mineLatLng)
+                        .width(15)
+                        .color(Color.RED));
+            }
+            oldMyLocation = mineLatLng;
+
 
             JSONObject obj = new JSONObject();
             try {
@@ -97,6 +113,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             });
         }
     };
+
     private Emitter.Listener latLngFromServer = new Emitter.Listener() {
         @Override
         public void call(final Object... args) {
@@ -107,10 +124,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
                     String lati;
                     String longi;
+                    String id;
                     try {
                         lati = data.getString("lat");
                         longi = data.getString("long");
-
+                        id = data.getString("id");
                     } catch (JSONException e) {
                         return;
                     }
@@ -119,9 +137,39 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                     double longitude = Double.valueOf(longi);
                     LatLng mineLatLng = new LatLng(latitude, longitude);
 
-                    ortherClientMarker.setPosition(mineLatLng);
+                    if (!listIdClient.contains(id)) {
+                        listIdClient.add(id);
+                        shMarkerClientLocation.put(id, mMap.addMarker(new MarkerOptions().position(mineLatLng)));
+                    }
 
-                    listenLatLngChange.onLatLngChange(mineLatLng);
+                    if (!oldAnotherClientLocation.isEmpty()) {
+                        // Lay mot tap hop cac entry
+                        Set set = oldAnotherClientLocation.entrySet();
+                        // Lay mot iterator
+                        Iterator i = set.iterator();
+
+                        while (i.hasNext()) {
+                            Map.Entry me = (Map.Entry) i.next();
+                            LatLng oldLaLng = (LatLng) me.getValue();
+                            if (me.getKey().equals(id)) {
+                                if (oldLaLng != mineLatLng) {
+                                    mMap.addPolyline(new PolylineOptions()
+                                            .add(oldLaLng, mineLatLng)
+                                            .width(15)
+                                            .color(Color.BLACK));
+
+                                    animateMarker((Marker) shMarkerClientLocation.get(id), mineLatLng, false);
+                                }
+                            }
+                        }
+                    }
+
+                    oldAnotherClientLocation.put(id, mineLatLng);
+
+
+                    //ortherClientMarker.setPosition(mineLatLng);
+
+                    //animateMarker(mMap.addMarker(new MarkerOptions().position(new LatLng(10.77524647645796, 106.67981909018566))), mineLatLng)
                 }
             });
         }
@@ -149,14 +197,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mSocket.on("resultRegister", onConnected);
         mSocket.on("latLngFromServer", latLngFromServer);
         mSocket.connect();
-
-        listenLatLngChange = new ListenLatLngChange() {
-            @Override
-            public void onLatLngChange(LatLng latLng) {
-                Log.d(TAG, "onLatLngChange: " + latLng);
-                mMap.addMarker(new MarkerOptions().position(latLng));
-            }
-        };
     }
 
 
@@ -197,20 +237,14 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                     new String[]{
                             android.Manifest.permission.ACCESS_FINE_LOCATION,
                             android.Manifest.permission.ACCESS_COARSE_LOCATION,
-                            //android.Manifest.permission.INTERNET,
                     }, 10);
-
-            Toast.makeText(this, "Permission denied", Toast.LENGTH_LONG).show();
-
-            return;
         }
         mMap.setMyLocationEnabled(true);
         // Add a marker in Sydney and move the camera
         LatLng sydney = new LatLng(-34, 151);
         mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
         mMap.animateCamera(CameraUpdateFactory.newLatLng(sydney));
-        ortherClientMarker = mMap.addMarker(new MarkerOptions().position(new LatLng(10.77524647645796, 106.67981909018566)));
-
+        mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(10.77524647645796, 106.67981909018566), 10));
     }
 
     public String showLatLng(LatLng latLng) {
